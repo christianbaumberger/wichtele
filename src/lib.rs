@@ -1,15 +1,13 @@
-use regex::Regex;
 use rand::rng;
 use rand::seq::SliceRandom;
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(PartialEq)]
+use regex::Regex;
+use std::collections::HashMap;
+#[derive(Debug, Clone, PartialEq)]
 pub struct Person {
     pub first_name: String,
     pub last_name: String,
 }
-#[derive(Clone)]
-#[derive(PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Assignment {
     pub person1: Person,
     pub person2: Person,
@@ -40,13 +38,21 @@ fn check_assignments(assignments: &Vec<Assignment>) -> Result<(), String> {
     if result.is_err() {
         return Err(result.unwrap_err());
     }
+    let result = check_family_to_family(&assignments);
+    if result.is_err() {
+        return Err(result.unwrap_err());
+    }
     Ok(())
 }
 
 fn check_person_to_itself(assignments: &Vec<Assignment>) -> Result<(), String> {
     for assignment in assignments {
         if assignment.person1 == assignment.person2 {
-            return Err(format!("Conflict: Itself with {}, {}", assignment.person1.first_name, assignment.person1.last_name).to_string());
+            return Err(format!(
+                "Conflict: Itself with {}, {}",
+                assignment.person1.first_name, assignment.person1.last_name
+            )
+            .to_string());
         }
     }
     Ok(())
@@ -55,7 +61,14 @@ fn check_person_to_itself(assignments: &Vec<Assignment>) -> Result<(), String> {
 fn check_family(assignments: &Vec<Assignment>) -> Result<(), String> {
     for assignment in assignments {
         if assignment.person1.last_name == assignment.person2.last_name {
-            return Err(format!("Conflict: Family {} {} with {} {}", assignment.person1.first_name, assignment.person1.last_name, assignment.person2.first_name, assignment.person2.last_name).to_string());
+            return Err(format!(
+                "Conflict: Family {} {} with {} {}",
+                assignment.person1.first_name,
+                assignment.person1.last_name,
+                assignment.person2.first_name,
+                assignment.person2.last_name
+            )
+            .to_string());
         }
     }
     Ok(())
@@ -67,7 +80,9 @@ fn check_full_circle(assignments: &Vec<Assignment>) -> Result<(), String> {
     let mut counter = 0;
     loop {
         counter += 1;
-        let assignment = assignments.iter().find(|assignemt| assignemt.person1 == current_person);
+        let assignment = assignments
+            .iter()
+            .find(|assignemt| assignemt.person1 == current_person);
         if let Some(assignment) = assignment {
             if assignment.person2 == first_person {
                 break;
@@ -76,7 +91,33 @@ fn check_full_circle(assignments: &Vec<Assignment>) -> Result<(), String> {
         }
     }
     if counter != assignments.len() {
-        return Err(format!("Conflict: Should have one large circle, but has len {}/{}", counter, assignments.len()));
+        return Err(format!(
+            "Conflict: Should have one large circle, but has len {}/{}",
+            counter,
+            assignments.len()
+        ));
+    }
+    Ok(())
+}
+
+fn check_family_to_family(assignments: &Vec<Assignment>) -> Result<(), String> {
+    let mut family_map: HashMap<String, i32> = HashMap::new();
+    for assignment in assignments {
+        let family_key =
+            assignment.person1.last_name.clone() + "_" + &assignment.person2.last_name.clone();
+        if family_map.contains_key(&family_key) {
+            let current_value = family_map.get(&family_key).unwrap().clone();
+            family_map.insert(family_key, current_value + 1);
+        } else {
+            family_map.insert(family_key, 1);
+        }
+    }
+    println!("Family map: {:?}", family_map);
+    let counts: Vec<&i32> = family_map.values().clone().collect();
+    for count in counts {
+        if *count > 1 {
+            return Err("Conflict: family to family".to_string());
+        }
     }
     Ok(())
 }
@@ -154,7 +195,10 @@ mod tests {
         assignments.push(assignment2);
         assignments.push(assignment3);
 
-        assert_eq!(Err("Conflict: Itself with FirstName3, LastName3".to_string()), check_person_to_itself(&assignments));
+        assert_eq!(
+            Err("Conflict: Itself with FirstName3, LastName3".to_string()),
+            check_person_to_itself(&assignments)
+        );
     }
 
     #[test]
@@ -194,7 +238,10 @@ mod tests {
         assignments.push(assignment2);
         assignments.push(assignment3);
 
-        assert_eq!(Err("Conflict: Family FirstName2 LastName2 with FirstName3 LastName2".to_string()), check_family(&assignments));
+        assert_eq!(
+            Err("Conflict: Family FirstName2 LastName2 with FirstName3 LastName2".to_string()),
+            check_family(&assignments)
+        );
     }
     #[test]
     fn test_check_two_circle() {
@@ -244,7 +291,10 @@ mod tests {
         assignments.push(assignment3);
         assignments.push(assignment4);
 
-        assert_eq!(Err("Conflict: Should have one large circle, but has len 2/4".to_string()), check_full_circle(&assignments));
+        assert_eq!(
+            Err("Conflict: Should have one large circle, but has len 2/4".to_string()),
+            check_full_circle(&assignments)
+        );
     }
     #[test]
     fn test_check_full_circle() {
@@ -295,5 +345,36 @@ mod tests {
         assignments.push(assignment4);
 
         assert_eq!(Ok(()), check_full_circle(&assignments));
+    }
+    #[test]
+    fn test_check_family_to_family() {
+        let assignment1 = Assignment {
+            person1: Person {
+                first_name: "FirstName1".to_string(),
+                last_name: "LastName1".to_string(),
+            },
+            person2: Person {
+                first_name: "FirstName2".to_string(),
+                last_name: "LastName2".to_string(),
+            },
+        };
+        let assignment2 = Assignment {
+            person1: Person {
+                first_name: "FirstName2".to_string(),
+                last_name: "LastName1".to_string(),
+            },
+            person2: Person {
+                first_name: "FirstName1".to_string(),
+                last_name: "LastName2".to_string(),
+            },
+        };
+        let mut assignments = Vec::new();
+        assignments.push(assignment1);
+        assignments.push(assignment2);
+
+        assert_eq!(
+            Err("Conflict: family to family".to_string()),
+            check_family_to_family(&assignments)
+        );
     }
 }
