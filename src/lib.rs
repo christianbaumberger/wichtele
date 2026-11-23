@@ -12,12 +12,12 @@ pub struct Assignment {
     pub person1: Person,
     pub person2: Person,
 }
-pub fn get_valid_assignment(content: &str) -> Vec<Assignment> {
+pub fn get_valid_assignment(content: &str, previous_assignments: Option<&Vec<Assignment>>) -> Vec<Assignment> {
     let persons = parse_names(content);
     let mut assignments;
     loop {
         assignments = generate_assignment(&persons);
-        match check_assignments(&assignments) {
+        match check_assignments(&assignments, previous_assignments) {
             Ok(()) => break,
             Err(msg) => println!("{}", msg),
         }
@@ -25,7 +25,7 @@ pub fn get_valid_assignment(content: &str) -> Vec<Assignment> {
     assignments
 }
 
-fn check_assignments(assignments: &Vec<Assignment>) -> Result<(), String> {
+fn check_assignments(assignments: &Vec<Assignment>, previous_assignments: Option<&Vec<Assignment>>) -> Result<(), String> {
     let result = check_person_to_itself(&assignments);
     if result.is_err() {
         return Err(result.unwrap_err());
@@ -41,6 +41,12 @@ fn check_assignments(assignments: &Vec<Assignment>) -> Result<(), String> {
     let result = check_family_to_family(&assignments);
     if result.is_err() {
         return Err(result.unwrap_err());
+    }
+    if let Some(previous) = previous_assignments {
+        let result = check_previous_assignments(assignments, previous);
+        if result.is_err() {
+            return Err(result.unwrap_err());
+        }
     }
     Ok(())
 }
@@ -120,6 +126,40 @@ fn check_family_to_family(assignments: &Vec<Assignment>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn check_previous_assignments(assignments: &Vec<Assignment>, previous_assignments: &Vec<Assignment>) -> Result<(), String> {
+    for assignment in assignments {
+        for previous in previous_assignments {
+            if assignment.person1 == previous.person1 && assignment.person2 == previous.person2 {
+                return Err(format!(
+                    "Conflict: {} {} was assigned to {} {} last year",
+                    assignment.person1.first_name, assignment.person1.last_name,
+                    assignment.person2.first_name, assignment.person2.last_name
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn parse_previous_assignments(content: &str) -> Vec<Assignment> {
+    let re = Regex::new(r"(?<firstname1>\w+)\s(?<lastname1>\w+)\s+to\s+(?<firstname2>\w+)\s(?<lastname2>\w+)").unwrap();
+    let mut assignments: Vec<Assignment> = Vec::new();
+    for line in content.lines() {
+        if let Some(caps) = re.captures(line) {
+            let person1 = Person {
+                first_name: caps["firstname1"].to_string(),
+                last_name: caps["lastname1"].to_string(),
+            };
+            let person2 = Person {
+                first_name: caps["firstname2"].to_string(),
+                last_name: caps["lastname2"].to_string(),
+            };
+            assignments.push(Assignment { person1, person2 });
+        }
+    }
+    assignments
 }
 
 fn generate_assignment(persons: &Vec<Person>) -> Vec<Assignment> {
@@ -376,5 +416,80 @@ mod tests {
             Err("Conflict: family to family".to_string()),
             check_family_to_family(&assignments)
         );
+    }
+
+    #[test]
+    fn test_check_previous_assignments_no_conflict() {
+        let assignment1 = Assignment {
+            person1: Person {
+                first_name: "Alice".to_string(),
+                last_name: "Smith".to_string(),
+            },
+            person2: Person {
+                first_name: "Bob".to_string(),
+                last_name: "Jones".to_string(),
+            },
+        };
+        let previous1 = Assignment {
+            person1: Person {
+                first_name: "Alice".to_string(),
+                last_name: "Smith".to_string(),
+            },
+            person2: Person {
+                first_name: "Carol".to_string(),
+                last_name: "White".to_string(),
+            },
+        };
+        let assignments = vec![assignment1];
+        let previous = vec![previous1];
+
+        assert_eq!(Ok(()), check_previous_assignments(&assignments, &previous));
+    }
+
+    #[test]
+    fn test_check_previous_assignments_conflict() {
+        let assignment1 = Assignment {
+            person1: Person {
+                first_name: "Alice".to_string(),
+                last_name: "Smith".to_string(),
+            },
+            person2: Person {
+                first_name: "Bob".to_string(),
+                last_name: "Jones".to_string(),
+            },
+        };
+        let previous1 = Assignment {
+            person1: Person {
+                first_name: "Alice".to_string(),
+                last_name: "Smith".to_string(),
+            },
+            person2: Person {
+                first_name: "Bob".to_string(),
+                last_name: "Jones".to_string(),
+            },
+        };
+        let assignments = vec![assignment1];
+        let previous = vec![previous1];
+
+        assert_eq!(
+            Err("Conflict: Alice Smith was assigned to Bob Jones last year".to_string()),
+            check_previous_assignments(&assignments, &previous)
+        );
+    }
+
+    #[test]
+    fn test_parse_previous_assignments() {
+        let content = "Alice Smith to Bob Jones\nCarol White to David Brown";
+        let assignments = parse_previous_assignments(content);
+
+        assert_eq!(assignments.len(), 2);
+        assert_eq!(assignments[0].person1.first_name, "Alice");
+        assert_eq!(assignments[0].person1.last_name, "Smith");
+        assert_eq!(assignments[0].person2.first_name, "Bob");
+        assert_eq!(assignments[0].person2.last_name, "Jones");
+        assert_eq!(assignments[1].person1.first_name, "Carol");
+        assert_eq!(assignments[1].person1.last_name, "White");
+        assert_eq!(assignments[1].person2.first_name, "David");
+        assert_eq!(assignments[1].person2.last_name, "Brown");
     }
 }
